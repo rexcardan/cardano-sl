@@ -18,7 +18,6 @@ module Pos.Arbitrary.Core
        , UnreasonableEoS (..)
        ) where
 
-import           Nub (ordNub)
 import           Universum
 
 import qualified Data.ByteString as BS (pack)
@@ -216,7 +215,7 @@ instance Arbitrary Types.AddrStakeDistribution where
         genPortions 0 res = pure res
         genPortions n res = do
             let limit =
-                    foldl' (-) Types.coinPortionDenominator $
+                    foldl' subtract Types.coinPortionDenominator $
                     map Types.getCoinPortion res
             let unsafeMkCoinPortion =
                     leftToPanic @Text "genPortions" . Types.mkCoinPortion

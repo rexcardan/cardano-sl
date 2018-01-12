@@ -20,6 +20,7 @@ import           Test.Hspec (Spec, describe)
 import           Test.Hspec.QuickCheck (modifyMaxSuccess, prop)
 import           Test.QuickCheck.Gen (Gen (MkGen))
 import           Test.QuickCheck.Monadic (assert, pick, pre)
+import           Test.QuickCheck.Property (Testable)
 import           Test.QuickCheck.Random (QCGen)
 
 import           Pos.Block.Logic (verifyAndApplyBlocks, verifyBlocksPrefix)
@@ -53,7 +54,7 @@ import           Test.Pos.Configuration (HasStaticConfigurations, withStaticConf
 
 -- | Specialized version of 'prop' function from 'hspec'.
 blockPropertySpec ::
-       (HasNodeConfiguration, HasDlgConfiguration, HasSscConfiguration)
+       (HasNodeConfiguration, HasDlgConfiguration, HasSscConfiguration, Testable a)
     => String
     -> (HasConfiguration => BlockProperty a)
     -> Spec

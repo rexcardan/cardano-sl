@@ -126,6 +126,7 @@ library
 
   build-depends:        MonadRandom
                       , QuickCheck
+                      , acid-state
                       , aeson >= 0.11.2.1
                       , ansi-terminal
                       , ansi-wl-pprint
@@ -151,7 +152,7 @@ library
                       , conduit >= 1.2.8
                       , constraints
                       , containers
-                      , cryptonite >= 0.23 && <= 0.23
+                      , cryptonite >= 0.23 && <= 0.24
                       , data-default
                       , deepseq
                       , directory
@@ -336,6 +337,7 @@ test-suite cardano-test
                      , lens
                      , mtl
                      , pvss
+                     , quickcheck-instances
                      , random
                      , reflection
                      , safecopy
@@ -354,11 +356,6 @@ test-suite cardano-test
                        -rtsopts
                        -Wall
                        -fno-warn-orphans
-
-  -- linker speed up for linux
-  if os(linux)
-    ghc-options:       -optl-fuse-ld=gold
-    ld-options:        -fuse-ld=gold
 
   default-extensions:   DeriveDataTypeable
                         DeriveGeneric
@@ -415,11 +412,6 @@ benchmark cardano-bench-criterion
                        -Wall
                        -fno-warn-orphans
                        -O2
-
-  -- linker speed up for linux
-  if os(linux)
-    ghc-options:       -optl-fuse-ld=gold
-    ld-options:        -fuse-ld=gold
 
   default-extensions:   DeriveDataTypeable
                         DeriveGeneric
