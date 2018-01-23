@@ -14878,7 +14878,7 @@ devnet: &devnet
         protocolConstants:
           <<: *mainnet_base_protocolConstants
           protocolMagic: 170987650
-          k: 6 # set to desired value
+          k: 2000 # set to desired value
         avvmDistr: *mainnet_avvmDistr
         initializer:
           testBalance:
@@ -14909,7 +14909,7 @@ devnet: &devnet
   node:
     <<: *mainnet_base_node
     networkDiameter: 18 # should be slightly less than slot duration
-    recoveryHeadersMessage: 200 # should be greater than k
+    recoveryHeadersMessage: 16000 # should be greater than k
 
 ##############################################################################
 ##                                                                          ##
