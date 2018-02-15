@@ -92,7 +92,6 @@ if [[ ("$OS_NAME" == "linux") ]]; then
   export EXPLORER_EXECUTABLE=
   nix-build -A dist -o explorer-frontend-dist \
             --argstr gitrev $BUILDKITE_COMMIT \
-            --arg cardano-sl-explorer `readlink $(pwd)/cardano-sl-explorer-static.root` \
             ./explorer/frontend/default.nix
 
   echo "Packing up explorer-frontend ..."

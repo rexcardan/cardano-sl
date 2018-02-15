@@ -44,10 +44,8 @@ let
   };
 
   # cardanoPackages provide the explorer backend.
-  # fetch a constant version so we're not rebuilding explorer every time
-  cardanoPackages = import (fetchTarball https://github.com/input-output-hk/cardano-sl/archive/66332b6ef1da8d249f70ceb3f1762011e81bcc59.tar.gz) {
-     inherit system config pkgs;
-     gitrev = "66332b6ef1da8d249f70ceb3f1762011e81bcc59";
+  cardanoPackages = import ../../default.nix {
+     inherit system config pkgs gitrev;
   };
   cardanoPackages' = cardanoPackages.override {
     overrides = self: super: {
