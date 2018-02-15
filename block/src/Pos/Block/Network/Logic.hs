@@ -66,13 +66,14 @@ import           Pos.Recovery.Info (recoveryInProgress)
 import           Pos.Reporting.MemState (HasMisbehaviorMetrics (..), MisbehaviorMetrics (..))
 import           Pos.Reporting.Methods (reportMisbehaviour)
 import           Pos.StateLock (Priority (..), modifyStateLock, withStateLockNoMetrics)
-import           Pos.Util (buildListBounds, multilineBounds, _neHead, _neLast)
+import           Pos.Util (buildListBounds, multilineBounds, tempMeasure, _neHead, _neLast)
 import           Pos.Util.AssertMode (inAssertMode)
 import           Pos.Util.Chrono (NE, NewestFirst (..), OldestFirst (..), _NewestFirst,
                                   _OldestFirst)
 import           Pos.Util.JsonLog (jlAdoptedBlock)
 import           Pos.Util.TimeWarp (CanJsonLog (..))
 import           Pos.Util.Util (lensOf)
+
 
 ----------------------------------------------------------------------------
 -- Exceptions
@@ -224,7 +225,9 @@ data MatchReqHeadersRes
     | MRUnexpected Text
       -- ^ Headers don't represent valid response to our
       -- request. Reason is attached.
-    deriving (Show)
+    deriving (Show, Generic)
+
+instance NFData MatchReqHeadersRes
 
 -- TODO This function is used ONLY in recovery mode, so passing the
 -- flag is redundant, it's always True.
@@ -263,8 +266,9 @@ requestHeaders
     -> m ()
 requestHeaders cont mgh nodeId conv = do
     logDebug $ sformat ("requestHeaders: sending "%build) mgh
-    send conv mgh
-    mHeaders <- recvLimited conv
+    mHeaders <- tempMeasure "sendReceiveHeaders" $ do
+        send conv mgh
+        recvLimited conv
     inRecovery <- recoveryInProgress
     -- TODO: it's very suspicious to see False here as requestHeaders
     -- is only called when we're in recovery mode.
@@ -289,7 +293,8 @@ requestHeaders cont mgh nodeId conv = do
                 (unitBuilder $ biSize headers)
                 nodeId
                 (map headerHash headers)
-            case matchRequestedHeaders headers mgh inRecovery of
+            tempMeasure "matchRequestedHeaders"
+              (pure $ force $ matchRequestedHeaders headers mgh inRecovery) >>= \case
                 MRGood           ->
                     handleRequestedHeaders cont inRecovery headers
                 MRUnexpected msg ->
@@ -320,7 +325,7 @@ handleRequestedHeaders cont inRecovery headers = do
     -- recovery mode. So we should try to do it manually.
     tryCalculateLrc
 
-    classificationRes <- classifyHeaders inRecovery headers
+    classificationRes <- tempMeasure "classifyHeaders" $ classifyHeaders inRecovery headers
     case classificationRes of
         CHsValid lcaChild -> do
             let lcaHash = lcaChild ^. prevBlockL
@@ -481,7 +486,9 @@ handleBlocksWithLca
 handleBlocksWithLca nodeId diffusion blocks lcaHash = do
     logDebug $ sformat lcaFmt lcaHash
     -- Head blund in result is the youngest one.
-    toRollback <- DB.loadBlundsFromTipWhile $ \blk -> headerHash blk /= lcaHash
+    toRollback <-
+        tempMeasure "handleBlocks.loadBlundsFromTipWhile" $
+        DB.loadBlundsFromTipWhile $ \blk -> headerHash blk /= lcaHash
     maybe (applyWithoutRollback diffusion blocks)
           (applyWithRollback nodeId diffusion blocks lcaHash)
           (_NewestFirst nonEmpty toRollback)
@@ -495,9 +502,11 @@ applyWithoutRollback
     -> OldestFirst NE Block
     -> m ()
 applyWithoutRollback diffusion blocks = do
+  tempMeasure "handleBlocks.applyWithoutRollback" $ do
     logInfo . sformat ("Trying to apply blocks w/o rollback. " % multilineBounds 6)
        . getOldestFirst . map (view blockHeader) $ blocks
-    modifyStateLock HighPriority "applyWithoutRollback" applyWithoutRollbackDo >>= \case
+    applyRes <- modifyStateLock HighPriority "applyWithoutRollback" applyWithoutRollbackDo
+    tempMeasure "handleBlocks.afterApply" $ case applyRes of
         Left (pretty -> err) ->
             onFailedVerifyBlocks (getOldestFirst blocks) err
         Right newTip -> do
@@ -523,7 +532,9 @@ applyWithoutRollback diffusion blocks = do
         :: HeaderHash -> m (HeaderHash, Either ApplyBlocksException HeaderHash)
     applyWithoutRollbackDo curTip = do
         logInfo "Verifying and applying blocks..."
-        res <- verifyAndApplyBlocks False blocks
+        res <-
+            tempMeasure "handleBlocks.verifyAndApplyBlocks" $
+            verifyAndApplyBlocks False blocks
         logInfo "Verifying and applying blocks done"
         let newTip = either (const curTip) identity res
         pure (newTip, res)
@@ -537,6 +548,7 @@ applyWithRollback
     -> NewestFirst NE Blund
     -> m ()
 applyWithRollback nodeId diffusion toApply lca toRollback = do
+  tempMeasure "handleBlocks.applyWithRollback" $ do
     logInfo . sformat ("Trying to apply blocks w/o rollback. " % multilineBounds 6)
        . getOldestFirst . map (view blockHeader) $ toApply
     logInfo $ sformat ("Blocks to rollback "%listJson) toRollbackHashes
