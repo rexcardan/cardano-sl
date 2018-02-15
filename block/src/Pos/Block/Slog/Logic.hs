@@ -43,7 +43,7 @@ import           Pos.Core (BlockVersion (..), FlatSlotId, HasConfiguration, blkS
                            prevBlockL)
 import           Pos.Core.Block (Block, genBlockLeaders, mainBlockSlot)
 import           Pos.DB (SomeBatchOp (..))
-import           Pos.DB.Block (putBlund)
+import           Pos.DB.Block (putBlunds)
 import qualified Pos.DB.BlockIndex as DB
 import           Pos.DB.Class (MonadDB (..), MonadDBRead)
 import qualified Pos.DB.GState.Common as GS (CommonOp (PutMaxSeenDifficulty, PutTip),
@@ -57,7 +57,8 @@ import           Pos.Update.Configuration (HasUpdateConfiguration, lastKnownBloc
 import qualified Pos.Update.DB as GS (getAdoptedBVFull)
 import           Pos.Util (_neHead, _neLast)
 import           Pos.Util.AssertMode (inAssertMode)
-import           Pos.Util.Chrono (NE, NewestFirst (getNewestFirst), OldestFirst (..), toOldestFirst)
+import           Pos.Util.Chrono (NE, NewestFirst (getNewestFirst), OldestFirst (..), toOldestFirst,
+                                  _OldestFirst)
 import           Pos.Util.Util (tempMeasure)
 
 ----------------------------------------------------------------------------
@@ -137,7 +138,7 @@ slogVerifyBlocks blocks = runExceptT $ do
     curSlot <- getCurrentSlot
     (adoptedBV, adoptedBVD) <- lift GS.getAdoptedBVFull
     let dataMustBeKnown = mustDataBeKnown adoptedBV
-    let headEpoch = blocks ^. _Wrapped . _neHead . epochIndexL
+    let headEpoch = blocks ^. _OldestFirst . _neHead . epochIndexL
     leaders <-
       tempMeasure "slog.1" $ lift $
         lrcActionOnEpochReason
@@ -149,7 +150,7 @@ slogVerifyBlocks blocks = runExceptT $ do
     -- We take head here, because blocks are in oldest first order and
     -- we know that all of them are from the same epoch. So if there
     -- is a genesis block, it must be head and only head.
-    case blocks ^. _Wrapped . _neHead of
+    case blocks ^. _OldestFirst . _neHead of
         (Left block) ->
             when (block ^. genBlockLeaders /= leaders) $
             throwError "Genesis block leaders don't match with LRC-computed"
@@ -229,7 +230,7 @@ slogApplyBlocks (ShouldCallBListener callBListener) blunds = do
     -- BlockDB. If program is interrupted after we put blunds and
     -- before we update GState, this invariant won't be violated. If
     -- we update GState first, this invariant may be violated.
-    tempMeasure "applyBlocksUnsafe.slog.dbPutBlunds" $ mapM_ putBlund blunds
+    tempMeasure "applyBlocksUnsafe.slog.dbPutBlunds" $ putBlunds $ blunds ^. _OldestFirst
     -- If the program is interrupted at this point (after putting blunds
     -- in BlockDB), we will have garbage blunds in BlockDB, but it's not a
     -- problem.
