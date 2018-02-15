@@ -40,11 +40,15 @@ usWorkers = (map fst [processNewSlotWorker, checkForUpdateWorker], mempty)
               NewSlotTerminationPolicy "Update.processNewSlot"
         }
     processNewSlotWorker =
+        -- TODO: [CSL-198] Catch and report non-critical errors, as
+        -- 'onNewSlot' no longer swallows all exception and rethrows them instead.
         localOnNewSlotWorker processNewSlotParams $ \s ->
             recoveryCommGuard "processNewSlot in US" $ do
                 logDebug "Updating slot for US..."
                 processNewSlot s
     checkForUpdateWorker =
+        -- TODO: [CSL-198] Catch and report non-critical errors, as
+        -- 'onNewSlot' no longer swallows all exception and rethrows them instead.
         localOnNewSlotWorker defaultOnNewSlotParams $ \_ ->
             recoveryCommGuard "checkForUpdate" (checkForUpdate @ctx @m)
 

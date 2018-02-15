@@ -87,6 +87,8 @@ onNewSlotSsc
     :: (SscMode ctx m)
     => (WorkerSpec m, OutSpecs)
 onNewSlotSsc = onNewSlotWorker defaultOnNewSlotParams mempty $ \slotId diffusion ->
+    -- TODO: [CSL-198] Catch and report non-critical errors, as
+    -- 'onNewSlot' no longer swallows all exception and rethrows them instead.
     recoveryCommGuard "onNewSlot worker in SSC" $ do
         sscGarbageCollectLocalData slotId
         whenM (shouldParticipate $ siEpoch slotId) $ do
@@ -395,6 +397,8 @@ checkForIgnoredCommitmentsWorker
     => (WorkerSpec m, OutSpecs)
 checkForIgnoredCommitmentsWorker = localWorker $ do
     counter <- newTVarIO 0
+    -- TODO: [CSL-198] Catch and report non-critical errors, as
+    -- 'onNewSlot' no longer swallows all exception and rethrows them instead.
     onNewSlot defaultOnNewSlotParams (checkForIgnoredCommitmentsWorkerImpl counter)
 
 -- This worker checks whether our commitments appear in blocks. This check

@@ -56,6 +56,8 @@ dumpKademliaStateWorker
     => KademliaDHTInstance
     -> (WorkerSpec m, OutSpecs)
 dumpKademliaStateWorker kademliaInst = localOnNewSlotWorker onsp $ \slotId ->
+    -- TODO: [CSL-198] Catch and report non-critical errors, as
+    -- 'onNewSlot' no longer swallows all exception and rethrows them instead.
     when (isTimeToDump slotId) $ recoveryCommGuard "dump kademlia state" $ do
         let dumpFile = kdiDumpPath kademliaInst
         logNotice $ sformat ("Dumping kademlia snapshot on slot: "%slotIdF) slotId

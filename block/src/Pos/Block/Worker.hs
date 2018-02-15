@@ -82,6 +82,8 @@ blkWorkers =
 
 informerWorker :: BlockWorkMode ctx m => (WorkerSpec m, OutSpecs)
 informerWorker =
+    -- TODO: [CSL-198] Catch and report non-critical errors, as
+    -- 'onNewSlot' no longer swallows all exception and rethrows them instead.
     onNewSlotWorker defaultOnNewSlotParams mempty $ \slotId _ ->
         recoveryCommGuard "onNewSlot worker, informerWorker" $ do
             tipHeader <- DB.getTipHeader
@@ -105,6 +107,8 @@ informerWorker =
 
 blkCreatorWorker :: BlockWorkMode ctx m => (WorkerSpec m, OutSpecs)
 blkCreatorWorker =
+    -- TODO: [CSL-198] Catch and report non-critical errors, as
+    -- 'onNewSlot' no longer swallows all exception and rethrows them instead.
     onNewSlotWorker onsp mempty $ \slotId diffusion ->
         recoveryCommGuard "onNewSlot worker, blkCreatorWorker" $
         blockCreator slotId diffusion `catchAny` onBlockCreatorException

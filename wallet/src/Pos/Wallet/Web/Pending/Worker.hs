@@ -167,6 +167,8 @@ startPendingTxsResubmitter
     => (TxAux -> m Bool)
     -> m ()
 startPendingTxsResubmitter submitTx =
+    -- TODO: [CSL-198] Catch and report non-critical errors, as
+    -- 'onNewSlot' no longer swallows all exception and rethrows them instead.
     setLogger $ onNewSlot onsp (processPtxsOnSlot submitTx)
   where
     setLogger = modifyLoggerName (<> "tx" <> "resubmitter")
