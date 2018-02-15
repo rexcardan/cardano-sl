@@ -108,9 +108,10 @@ in
         # patch build recipe for nix
         echo "patching webpack.config.babel.js"
         sed -i \
-            -e "s/COMMIT_HASH.*/COMMIT_HASH': '${gitrev}',/" \
+            -e "s/COMMIT_HASH.*/COMMIT_HASH': '\"${gitrev}\"',/" \
             -e "s/import GitRevisionPlugin.*//" \
             -e "s/path:.*/path: process.env.out,/" \
+            -e "/new ProgressPlugin/d" \
             webpack.config.babel.js
 
         echo "patching build:prod script"
