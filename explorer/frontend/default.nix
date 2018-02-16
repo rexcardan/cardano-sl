@@ -5,7 +5,7 @@ in
 , config ? {}
 , gitrev ? localLib.commitIdFromGitRepo ../../.git
 , pkgs ? (import (localLib.fetchNixPkgs) { inherit system config; })
-, cardano-sl-explorer ? null
+, cardano-sl-explorer
 }:
 
 with pkgs.lib;
@@ -43,16 +43,6 @@ let
     inherit src;
   };
 
-  # cardanoPackages provide the explorer backend.
-  cardanoPackages = import ../../default.nix {
-     inherit system config pkgs gitrev;
-  };
-  cardanoPackages' = cardanoPackages.override {
-    overrides = self: super: {
-      cardano-sl-networking = pkgs.haskell.lib.dontCheck super.cardano-sl-networking;
-    };
-  };
-
   # p-d-l does not build with our main version of nixpkgs.
   # Needs to use something off 17.03 branch.
   oldHaskellPackages = (import (fetchTarball https://github.com/NixOS/nixpkgs/archive/cb90e6a0361554d01b7a576af6c6fae4c28d7513.tar.gz) {}).pkgs.haskell.packages.ghc802.override {
@@ -63,8 +53,7 @@ let
 
   frontendBuildInputs = [
     oldHaskellPackages.purescript-derive-lenses
-    (if (cardano-sl-explorer != null) then cardano-sl-explorer
-     else cardanoPackages.cardano-sl-explorer-static)
+    cardano-sl-explorer
   ];
 
 in
@@ -73,8 +62,9 @@ in
 
     dist = pkgs.runCommand "cardano-sl-explorer-frontend" {} ''
       # scratch directory for uglify-js
-      mkdir home
-      export HOME=`pwd`/home
+      mkdir home  # fixme: just use HOME=$(pwd)
+      export HOME=$(pwd)/home
+      # export HOME=$(pwd)
 
       # needs a writeable version of package
       cp -R ${package}/lib/node_modules/cardano-sl-explorer .
@@ -84,11 +74,12 @@ in
       # webpack config is patched to output here
       mkdir $out
 
+      sed -i -e "s/@GITREV@/${gitrev}/" webpack.config.babel.js
+
       # run the build:prod script
-      export PATH=`pwd`/node_modules/.bin:${pkgs.purescript}/bin:$PATH
+      export PATH=$(pwd)/node_modules/.bin:${pkgs.purescript}/bin:$PATH
       export NODE_ENV=production
       webpack --config webpack.config.babel.js
-      # ${pkgs.nodejs}/bin/npm run build:prod
     '';
 
     package = nodePackages.package.override (oldAttrs: {
@@ -105,12 +96,11 @@ in
 
         # patch build recipe for nix
         echo "patching webpack.config.babel.js"
-        sed -i \
-            -e "s/COMMIT_HASH.*/COMMIT_HASH': '\"${gitrev}\"',/" \
+        sed -e "s/COMMIT_HASH.*/COMMIT_HASH': '\"@GITREV@\"',/" \
             -e "s/import GitRevisionPlugin.*//" \
             -e "s/path:.*/path: process.env.out,/" \
             -e "/new ProgressPlugin/d" \
-            webpack.config.babel.js
+            -i webpack.config.babel.js
 
         echo "patching build:prod script"
         sed -i -e "s=./node_modules/.bin/rimraf dist && mkdir dist && ==" package.json
@@ -120,16 +110,12 @@ in
       buildInputs = oldAttrs.buildInputs ++ frontendBuildInputs;
     });
 
+    # nodePackages.shell.override doesn't work
+    # https://github.com/svanderburg/node2nix/issues/31
     shell = pkgs.stdenv.mkDerivation {
       name = "explorer-frontend-shell";
       buildInputs = with pkgs; [ nodejs-6_x yarn pkgs.nodePackages.bower purescript ]
           ++ frontendBuildInputs;
       src = null;
     };
-    # # fixme: this override doesn't work https://github.com/svanderburg/node2nix/issues/31
-    # shell = nodePackages.shell.override (oldAttrs: {
-    #   dontNpmInstall = true;
-    #   buildInputs = oldAttrs.buildInputs ++ frontendBuildInputs;
-    # });
-
   }
