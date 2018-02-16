@@ -8,6 +8,7 @@ module Cardano.Wallet.Kernel.Mode (
 
 import Universum
 import Control.Lens (makeLensesWith)
+import System.Wlog
 import qualified Control.Monad.Reader as Mtl
 
 import Mockable
@@ -71,6 +72,7 @@ walletApplyBlocks :: PassiveWallet
 walletApplyBlocks _w _bs = do
     -- TODO: Call into the wallet. This should be an asynchronous operation
     -- because 'onApplyBlocks' gets called with the block lock held.
+    logError "walletApplyBlocks not implemented"
 
     -- We don't make any changes to the DB so we always return 'mempty'.
     return mempty
@@ -85,6 +87,7 @@ walletRollbackBlocks :: PassiveWallet
 walletRollbackBlocks _w _bs = do
     -- TODO: Call into the wallet. This should be an asynchronous operation
     -- because 'onRollbackBlocks' gets called with the block lock held.
+    logError "walletRollbackBlocks not implemented"
 
     -- We don't make any changes to the DB so we always return 'mempty'.
     return mempty
