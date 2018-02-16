@@ -35,10 +35,10 @@ import           Pos.DB (DBError (DBMalformed), MonadDBRead, SomeBatchOp (..))
 import qualified Pos.DB as DB
 import qualified Pos.DB.GState.Common as GS
 import           Pos.Delegation.Cede (CedeModifier (..), CheckForCycle (..), DlgEdgeAction (..),
-                                      MapCede, MonadCede (..), MonadCedeRead (..),
+                                      MapCede, MonadCede (..), MonadCedeRead (..), cmPskMods,
                                       detectCycleOnAddition, dlgEdgeActionIssuer, dlgVerifyHeader,
-                                      dlgVerifyPskHeavy, evalMapCede, getPskChain, getPskPk, modPsk,
-                                      pskToDlgEdgeAction, runDBCede)
+                                      dlgVerifyPskHeavy, emptyCedeModifier, evalMapCede,
+                                      getPskChain, getPskPk, modPsk, pskToDlgEdgeAction, runDBCede)
 import           Pos.Delegation.Class (MonadDelegation, dwProxySKPool, dwTip)
 import qualified Pos.Delegation.DB as GS
 import           Pos.Delegation.Logic.Common (DelegationError (..), runDelegationStateAction)
@@ -50,6 +50,7 @@ import           Pos.Lrc.Context (HasLrcContext)
 import           Pos.Lrc.Types (RichmenSet)
 import           Pos.Util (getKeys, _neHead)
 import           Pos.Util.Chrono (NE, NewestFirst (..), OldestFirst (..))
+import           Pos.Util.Util (tempMeasure)
 
 
 -- Copied from 'these' library.
@@ -257,10 +258,10 @@ calculateTransCorrections eActions = do
 
             eActionsHM :: CedeModifier
             eActionsHM =
-                CedeModifier
-                    (HM.fromList $ map (\x -> (dlgEdgeActionIssuer x, x)) $
-                                      HS.toList eActions)
-                    mempty
+                emptyCedeModifier &
+                    cmPskMods .~
+                        (HM.fromList $ map (\x -> (dlgEdgeActionIssuer x, x))
+                                           (HS.toList eActions))
 
         in void $ StateT $ \s -> evalMapCede eActionsHM $ runStateT (loop iSId) s
 
@@ -327,8 +328,8 @@ dlgVerifyBlocks ::
     => OldestFirst NE Block
     -> ExceptT Text m (OldestFirst NE DlgUndo)
 dlgVerifyBlocks blocks = do
-    richmen <- lift $ getDlgRichmen "dlgVerifyBlocks" headEpoch
-    hoist (evalMapCede mempty) $ mapM (verifyBlock richmen) blocks
+    richmen <- tempMeasure "dlgVer.getRich" $ lift $ getDlgRichmen "dlgVerifyBlocks" headEpoch
+    hoist (evalMapCede emptyCedeModifier) $ mapM (verifyBlock richmen) blocks
   where
     headEpoch = blocks ^. _Wrapped . _neHead . epochIndexL
 
@@ -357,43 +358,49 @@ dlgVerifyBlocks blocks = do
         ------------- [Payload] -------------
 
         let proxySKs = getDlgPayload $ view mainBlockDlgPayload blk
-            allIssuers = map pskIssuerPk proxySKs
+        let verifyPayload = tempMeasure "dlgver.main.payload" $ do
+                let allIssuers = map pskIssuerPk proxySKs
 
-        -- Collect rollback info (all certificates we'll
-        -- delete/override), apply new psks.
-        toRollback <- fmap catMaybes $ forM proxySKs $ \psk ->do
-            dlgVerifyPskHeavy
-                richmen
-                (CheckForCycle False)
-                (blk ^. mainBlockSlot . to siEpoch)
-                psk
-            modPsk $ pskToDlgEdgeAction psk
-            getPskPk $ pskIssuerPk psk
+                -- Collect rollback info (all certificates we'll
+                -- delete/override), apply new psks.
+                toRollback <- fmap catMaybes $ forM proxySKs $ \psk ->do
+                    dlgVerifyPskHeavy
+                        richmen
+                        (CheckForCycle False)
+                        (blk ^. mainBlockSlot . to siEpoch)
+                        psk
+                    modPsk $ pskToDlgEdgeAction psk
+                    getPskPk $ pskIssuerPk psk
 
-        -- Check 7: applying psks won't create a cycle.
-        --
-        -- Lemma 1: Removing edges from acyclic graph doesn't create cycles.
-        --
-        -- Lemma 2: Let G = (E₁,V₁) be acyclic graph and F = (E₂,V₂) another one,
-        -- where E₁ ∩ E₂ ≠ ∅ in general case. Then if G ∪ F has a loop C, then
-        -- ∃ a ∈ C such that a ∈ E₂.
-        --
-        -- Hence in order to check whether S=G∪F has cycle, it's sufficient to
-        -- validate that dfs won't re-visit any vertex, starting it on
-        -- every s ∈ E₂.
-        --
-        -- In order to do it we should resolve with db, 'dvPskChanged' and
-        -- 'proxySKs' together. So it's alright to first apply 'proxySKs'
-        -- to 'dvPskChanged' and then perform the check.
+                -- Check 7: applying psks won't create a cycle.
+                --
+                -- Lemma 1: Removing edges from acyclic graph doesn't create cycles.
+                --
+                -- Lemma 2: Let G = (E₁,V₁) be acyclic graph and F = (E₂,V₂) another one,
+                -- where E₁ ∩ E₂ ≠ ∅ in general case. Then if G ∪ F has a loop C, then
+                -- ∃ a ∈ C such that a ∈ E₂.
+                --
+                -- Hence in order to check whether S=G∪F has cycle, it's sufficient to
+                -- validate that dfs won't re-visit any vertex, starting it on
+                -- every s ∈ E₂.
+                --
+                -- In order to do it we should resolve with db, 'dvPskChanged' and
+                -- 'proxySKs' together. So it's alright to first apply 'proxySKs'
+                -- to 'dvPskChanged' and then perform the check.
 
-        cyclePoints <- catMaybes <$> mapM detectCycleOnAddition proxySKs
-        unless (null cyclePoints) $
-            throwError $
-            sformat ("Block "%build%" leads to psk cycles, at least in these certs: "%listJson)
-                    (headerHash blk)
-                    (take 5 $ cyclePoints) -- should be enough
+                cyclePoints <- catMaybes <$> mapM detectCycleOnAddition proxySKs
+                unless (null cyclePoints) $
+                    throwError $
+                    sformat ("Block "%build%" leads to psk cycles, at "%
+                             "least in these certs: "%listJson)
+                            (headerHash blk)
+                            (take 5 $ cyclePoints) -- should be enough
 
-        mapM_ (addThisEpochPosted . addressHash) allIssuers
+                mapM_ (addThisEpochPosted . addressHash) allIssuers
+                pure toRollback
+
+        -- We don't want to verify empty payload
+        toRollback <- if null proxySKs then pure mempty else verifyPayload
 
         pure $ DlgUndo toRollback mempty
 
