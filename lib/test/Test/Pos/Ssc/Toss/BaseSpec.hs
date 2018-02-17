@@ -6,6 +6,8 @@ module Test.Pos.Ssc.Toss.BaseSpec
 
 import           Universum
 
+import           Codec.CBOR.Read (deserialiseFromBytes)
+import           Codec.CBOR.Write (toLazyByteString)
 import           Control.Lens (ix, _Wrapped)
 import qualified Crypto.Random as Rand
 import qualified Data.HashMap.Strict as HM
@@ -21,7 +23,8 @@ import           Test.QuickCheck (Arbitrary (..), Gen, NonEmptyList (..), Proper
 import           Pos.Arbitrary.Lrc (GenesisMpcThd, ValidRichmenStakes (..))
 import           Pos.Arbitrary.Ssc (BadCommAndOpening (..), BadSignedCommitment (..),
                                     CommitmentOpening (..))
-import           Pos.Binary (AsBinary)
+import           Pos.Binary (AsBinary, Bi (..))
+import           Pos.Binary.Core ()
 import           Pos.Core (Coin, EpochIndex, EpochOrSlot (..), HasConfiguration, StakeholderId,
                            VssCertificate (..), VssCertificatesMap (..), addressHash, crucialSlot,
                            genesisBlockVersionData, insertVss, mkCoin, _vcVssKey)
@@ -69,6 +72,7 @@ spec = withDefConfiguration $ describe "Ssc.Base" $ do
             (\e mrs hm -> emptyPayload (checkCertificatesPayload e) $ HM.insert e hm mrs)
         prop description_checksGoodCertsPayload checksGoodCertsPayload
         prop description_checksBadCertsPayload checksBadCertsPayload
+        prop description_checksBijectiveCertsPayload checksBijectiveCertsPayload
   where
     description_verifiesOkComm =
         "successfully verifies a correct commitment commitment"
@@ -103,6 +107,8 @@ spec = withDefConfiguration $ describe "Ssc.Base" $ do
     description_checksBadCertsPayload =
         "unsuccessfully checks payload of certificates with the right exception for each\
         \ failure case"
+    description_checksBijectiveCertsPayload =
+        "no two stakeholders can have same active VSS keys"
 
 verifiesOkComm :: CommitmentOpening -> Bool
 verifiesOkComm CommitmentOpening{..} =
@@ -615,6 +621,33 @@ checksBadCertsPayload (GoodPayload epoch sgs certsMap mrs) pk cert =
     in (not (HM.member certSid $ mrs HM.! epoch) &&
         not (vcVssKey cert `elem` allVssKeys))
        ==> res1 .&&. res2 .&&. res3 .&&. res4
+
+-- [CT-99]: Test that no two stakeholders can have same active VSS keys
+checksBijectiveCertsPayload :: HasConfiguration => GoodCertsPayload -> VssCertData -> Property
+checksBijectiveCertsPayload (GoodPayload _ _ vssCertsMap _) _ = do
+    -- 1. A VSS payload with two certs that have equal VSS keys should not be
+    -- deserializable (with decode).
+
+    -- insert same certificate with different ids
+    let certsMap = getVssCertificatesMap vssCertsMap
+    let x@(_, cert1) : (sid2, _) : rest = HM.toList certsMap
+    let newCerts = UnsafeVssCertificatesMap $ HM.fromList $ x : (sid2, cert1) : rest
+
+    -- check that certificate duplication throws error on decoding stage
+    let encodedCerts = encode newCerts
+    let decodedCerts = deserialiseFromBytes (decode @VssCertificatesMap)
+                                            (toLazyByteString encodedCerts)
+    let check1 = HM.size certsMap >= 2 ==> isLeft decodedCerts
+
+    -- 2. A VSS payload should not be allowed to contain a certificate with a
+    -- VSS key that already exists in VssCertData. It looks like something
+    -- similar is checked in Test.Pos.Ssc.Toss.BaseSpec, but I'm not quite sure.
+    -- It's definitely possible to write a simpler, foolproof test, though.
+    -- TODO: 'checksBadCertsPayload' doesn't have 'VssCertData' in its arguments
+    -- :shrug: I don't really understand what should be here...
+    let check2 = True
+
+    check1 .&&. check2
 
 ----------------------------------------------------------------------------
 -- Utility functions for this module
